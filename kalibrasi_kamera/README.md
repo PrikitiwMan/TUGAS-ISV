@@ -1,51 +1,49 @@
 # Laporan Tugas Praktikum Mandiri — Kalibrasi Kamera (Papan Catur)
 
 ## Setup
-- Kamera: smartphone, citra 960×1280 px (portrait)
+- Kamera: smartphone, citra 960×1280 px (portrait; foto dari WhatsApp, sudah terkompres)
 - Papan catur lipat 8×8 kotak → **7×7 sudut dalam** (49 titik/citra). Ukuran kotak diasumsikan **25.0 mm** (hanya memengaruhi tvecs, tidak memengaruhi K, D, maupun error)
-- Foto: 29 → terdeteksi 26 → dipakai 25 (outlier error > 1,5 px dibuang: papan_06.jpg)
-- Deteksi (`detector.py`): `findChessboardCorners/SB` multi-skala; bila gagal (garis lipatan), cari sebagian kisi lalu tentukan posisinya di papan 8×8 dengan pencocokan pola terang/gelap + validasi homografi. Semua sudut diperhalus `cornerSubPix`.
+- Foto: 29 → terdeteksi 26 → dipakai 24 (outlier dibuang: papan_27.jpg, papan_06.jpg)
+- Deteksi (`detector.py`): `findChessboardCorners/SB` pada citra diperkecil (hanya untuk pencarian awal); bila gagal (garis lipatan), cari sebagian kisi lalu tentukan posisinya di papan 8×8 dengan pencocokan pola terang/gelap + validasi homografi. Semua sudut diperhalus `cornerSubPix` pada **resolusi penuh**.
 - Kalibrasi: `cv2.calibrateCamera` (Zhang), model D = [k1,k2,p1,p2,k3]
 
 ## Hasil
 Matriks intrinsik K:
 
 ```
-[[   954.11  0.00    471.13]
- [  0.00    954.89    663.80]
+[[   956.20  0.00    470.12]
+ [  0.00    956.16    657.47]
  [  0.00     0.00     1.00]]
 ```
-fx=954.11, fy=954.89, u0=471.13, v0=663.80 (piksel)
+fx=956.20, fy=956.16, u0=470.12, v0=657.47 (piksel)
 
 Koefisien distorsi D = [k1, k2, p1, p2, k3]:
-`[0.2954, -1.8610, 0.0104, -0.0065, 3.2573]`
+`[0.3118, -1.8877, 0.0098, -0.0070, 3.0422]`
 
 | Metrik | Nilai |
 |---|---|
-| **Mean Reprojection Error** (rata-rata RMSE per citra) | **0.8222 px** |
-| RMS global (`ret` dari calibrateCamera) | 0.8371 px |
-| Validasi silang (kalibrasi 12 citra, uji 13 citra lain) | 1.3969 px |
+| **Mean Reprojection Error** (rata-rata RMSE per citra) | **0.8368 px** |
+| RMS global (`ret` dari calibrateCamera) | 0.8624 px |
+| Error relatif (MRE ÷ sisi terpanjang citra) | 0.065 % |
+| Validasi silang (kalibrasi 12 citra, uji 12 citra lain) | 1.6044 px |
 
-Variasi model dengan k3 dikunci 0 (`--fix-k3`): fx=958.1, fy=958.3, u0=470.6, v0=659.3, D=[0.2199, -0.8918, 0.0096, -0.0067, 0.0], MRE=0.8264 px.
+Variasi model dengan k3 dikunci 0 (`--fix-k3`): fx=959.1, fy=958.7, u0=470.2, v0=654.7, D=[0.2387, -0.973, 0.0093, -0.0068, 0.0], MRE=0.8407 px.
 
 ## Plot dan bukti
-- `reports/figures/koefisien_distorsi.png` — koefisien distorsi
-- `reports/figures/error_reproyeksi.png` — error per citra
-- `reports/figures/distorsi_radial.png` — profil radial + peta perpindahan piksel
-- `reports/figures/cakupan_sudut.png` — sebaran sudut di bingkai
-- `reports/scan/` — hasil scan papan (garis kuning tepi area 8×8)
-- `reports/figures/sebelum_sesudah_undistort.jpg`, `reports/detected/` — bukti deteksi
+- `reports/figures/koefisien_distorsi.png`, `error_reproyeksi.png`, `distorsi_radial.png`, `cakupan_sudut.png`, `sebelum_sesudah_undistort.jpg`
+- `reports/scan/` — hasil scan papan (garis kuning tepi area 8×8); `reports/detected/` — sudut terdeteksi
 
 ## Catatan / keterbatasan
-- Sudut papan hanya menempati bagian tengah bingkai, **tidak menjangkau tepi/pojok**. Suku orde tinggi (k2, k3) tidak terkendala di tepi; nilainya besar (k2≈-1.86, k3≈3.26) dan koreksi di pojok citra tidak dapat dipercaya. Validasi silang (1.40 px) jauh di atas MRE, tanda model distorsi orde tinggi belum stabil. K sendiri stabil (fx≈fy≈955 px pada berbagai pengaturan).
-- 3 foto (17, 19, 23) tidak terdeteksi: papan terlalu miring/kecil atau hasil ekstrapolasi tidak lolos validasi.
-- Error ≈0,8 px wajar untuk foto smartphone terkompres (WhatsApp, 1280×960) dengan papan kayu berkontras rendah dan garis lipatan di tengah.
-- Untuk hasil lebih kuat: foto ulang dengan papan rata, isi seluruh bingkai (termasuk pojok), 15–20 pose, tanpa kompresi.
+- **Error dalam piksel bergantung pada resolusi.** Foto yang dipakai hanya 960×1280 px; foto asli kamera (≈3000 px) akan menghasilkan error piksel ≈3× lebih besar untuk ketelitian relatif yang sama, dan K (fx, fy, u0, v0) ikut membesar sebanding. Bandingkan antar-kalibrasi memakai error relatif (MRE ÷ ukuran citra), bukan piksel mentah.
+- Sudut papan hanya menempati bagian tengah bingkai, **tidak menjangkau tepi/pojok**. Suku orde tinggi (k2, k3) tidak terkendala di tepi; nilainya besar dan koreksi di pojok citra tidak dapat dipercaya. Validasi silang (1.60 px) jauh di atas MRE.
+- Foto yang tidak terdeteksi / dibuang: papan terlalu miring atau kecil, atau hasil ekstrapolasi tidak lolos validasi.
+- Untuk hasil lebih kuat: pakai foto asli beresolusi penuh (bukan kiriman WhatsApp), papan rata, isi seluruh bingkai (termasuk pojok), 15–20 pose.
 
 ## Menjalankan ulang
 ```
 pip install -r requirements.txt
-python calibrate.py                 # default (butuh calibrate.py DAN detector.py di folder yang sama)
+python calibrate.py                 # butuh calibrate.py DAN detector.py di folder yang sama
 python calibrate.py --square-mm 30  # jika ukuran kotak berbeda
 python calibrate.py --fix-k3        # k3 dikunci 0
 ```
+Foto diletakkan di `data/raw/` (jpg/jpeg/png, resolusi berapa pun).

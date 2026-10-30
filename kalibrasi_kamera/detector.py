@@ -19,13 +19,19 @@ PATS = [(7, 7), (7, 6), (6, 7), (6, 6), (7, 5), (5, 7), (6, 5), (5, 6), (5, 5), 
 
 def _refine_subpix(gray, pts):
     d = np.median(np.linalg.norm(np.diff(pts.reshape(-1, 2)[:N], axis=0), axis=1))
-    w = int(np.clip(d * 0.25, 5, 25))
+    w = int(np.clip(d * 0.25, 5, max(25, 0.02 * max(gray.shape))))  # batas ikut resolusi
     return cv2.cornerSubPix(gray, pts.reshape(-1, 1, 2).astype(np.float32), (w, w), (-1, -1), CRIT)
+
+
+def _scales(gray, targets):
+    """Skala pengecilan agar sisi terpanjang menjadi ~target piksel (independen resolusi)."""
+    L = max(gray.shape)
+    return [min(1.0, t / L) for t in targets]
 
 
 def find_full(gray):
     """Deteksi 7x7 langsung (multi-skala). Mengembalikan (49,1,2) atau None."""
-    for s in (0.4, 0.33, 0.28, 0.25, 0.2):
+    for s in _scales(gray, (512, 422, 358, 320, 256)):
         small = cv2.resize(gray, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
         for im in (small, cv2.createCLAHE(3, (8, 8)).apply(small), cv2.GaussianBlur(small, (0, 0), 1.2)):
             ok, c = cv2.findChessboardCorners(
@@ -40,7 +46,7 @@ def find_full(gray):
 
 def _find_blocks(gray, maxn=8):
     out = []
-    for s in (0.4, 0.3, 0.22):
+    for s in _scales(gray, (512, 384, 282)):
         small = cv2.resize(gray, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
         for im in (small, cv2.GaussianBlur(small, (0, 0), 1.2), cv2.createCLAHE(3, (8, 8)).apply(small)):
             for p in PATS:
@@ -123,7 +129,9 @@ def _refine_from_H(gray, H):
 
 
 def find_by_block(gray, min_score=20.0, max_resid=1.5, top=6):
-    gb = cv2.GaussianBlur(gray, (0, 0), 3)
+    k = max(gray.shape) / 1280.0  # ambang piksel diskalakan terhadap resolusi (acuan 1280 px)
+    max_resid *= k
+    gb = cv2.GaussianBlur(gray, (0, 0), 3 * k)
     cands = []
     for p, c in _find_blocks(gray):
         cands += place_block(gb, p, c)

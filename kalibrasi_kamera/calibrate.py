@@ -14,6 +14,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+BASE = os.path.dirname(os.path.abspath(__file__))  # path default dihitung dari lokasi skrip, bukan folder terminal
 CRIT = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 50, 0.0005)
 
 
@@ -38,13 +39,14 @@ def per_image_rmse(objp, imgp, rvec, tvec, K, D):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--images", default="data/raw/*.jpg")
+    ap.add_argument("--images", default=os.path.join(BASE, "data", "raw", "*"), help="pola file citra (jpg/jpeg/png)")
     ap.add_argument("--square-mm", type=float, default=25.0)
-    ap.add_argument("--outlier-px", type=float, default=1.5,
-                    help="buang citra dengan RMSE > nilai ini lalu kalibrasi ulang (0 = nonaktif)")
+    ap.add_argument("--outlier-px", type=float, default=None,
+                    help="buang citra dengan RMSE > nilai ini lalu kalibrasi ulang (0 = nonaktif). "
+                         "Default: 1.5 px untuk sisi terpanjang 1280 px, diskalakan otomatis dengan resolusi")
     ap.add_argument("--fix-k3", action="store_true",
                     help="kunci k3=0 (lebih stabil bila variasi pose/jarak terbatas)")
-    ap.add_argument("--out", default="reports")
+    ap.add_argument("--out", default=os.path.join(BASE, "reports"))
     a = ap.parse_args()
     pattern = (detector.N, detector.N)  # papan 8x8 kotak -> 7x7 sudut dalam
     for sub in ("detected", "scan"):  # buang sisa hasil jalan sebelumnya
@@ -54,8 +56,10 @@ def main():
     objp = np.zeros((detector.N ** 2, 3), np.float32)
     objp[:, :2] = detector.GRID * a.square_mm
 
-    names, imgpoints, size = [], [], None
-    for f in sorted(glob.glob(a.images)):
+    names, paths, imgpoints, size = [], [], [], None
+    outlier_px = a.outlier_px
+    files = [f for f in sorted(glob.glob(a.images)) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
+    for f in files:
         img = cv2.imread(f)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         size = gray.shape[::-1]
@@ -63,11 +67,14 @@ def main():
         ok = c is not None
         print(f"{os.path.basename(f)}: {how if ok else 'gagal'}")
         if ok:
-            names.append(os.path.basename(f)); imgpoints.append(c)
-            vis = img.copy(); cv2.drawChessboardCorners(vis, pattern, c, True)
-            cv2.imwrite(f"{a.out}/detected/{os.path.basename(f)}", cv2.resize(vis, None, fx=0.5, fy=0.5))
-            cv2.imwrite(f"{a.out}/scan/{os.path.basename(f)}", draw_board_scan(img, c, pattern))
-    total = len(glob.glob(a.images))
+            names.append(os.path.basename(f)); paths.append(f); imgpoints.append(c)
+    total = len(files)
+    if not names:
+        raise SystemExit(f"Tidak ada citra yang terbaca/terdeteksi dari: {a.images}\n"
+                         f"(ditemukan {total} berkas). Pastikan foto ada di folder data/raw di samping calibrate.py.")
+    if outlier_px is None:
+        outlier_px = 1.5 * max(size) / 1280.0
+        print(f"Ambang outlier otomatis: {outlier_px:.2f} px (skala resolusi)")
     print(f"\nTerdeteksi: {len(names)}/{total} citra, ukuran {size}")
     if len(names) < 12:
         raise SystemExit("Kurang dari 12 citra valid.")
@@ -82,12 +89,18 @@ def main():
     idx = list(range(len(names)))
     rms, K, D, rv, tv, errs = calibrate(idx)
     dropped = []
-    if a.outlier_px > 0:
+    if outlier_px > 0:
         # buang outlier satu per satu (yang terburuk dulu) selama masih > 12 citra
-        while max(errs) > a.outlier_px and len(idx) > 12:
+        while max(errs) > outlier_px and len(idx) > 12:
             w = int(np.argmax(errs)); dropped.append((names[idx[w]], errs[w])); idx.pop(w)
             rms, K, D, rv, tv, errs = calibrate(idx)
     used = [names[i] for i in idx]
+    # gambar bukti hanya untuk citra yang lolos (bukan outlier)
+    for i in idx:
+        img = cv2.imread(paths[i])
+        vis = img.copy(); cv2.drawChessboardCorners(vis, pattern, imgpoints[i], True)
+        cv2.imwrite(f"{a.out}/detected/{names[i]}", cv2.resize(vis, None, fx=0.5, fy=0.5))
+        cv2.imwrite(f"{a.out}/scan/{names[i]}", draw_board_scan(img, imgpoints[i], pattern))
     mre = float(np.mean(errs))  # rata-rata RMSE per-citra
 
     # Validasi silang: kalibrasi dengan setengah citra, uji error pada setengah lain
@@ -167,8 +180,7 @@ def main():
     fig.savefig(f"{a.out}/figures/cakupan_sudut.png", dpi=150); plt.close(fig)
 
     # ---- Plot 4: sebelum/sesudah undistort pada satu foto
-    pick = used[int(np.argmax(errs))] if False else used[0]
-    img = cv2.imread(f"data/raw/{pick}") if os.path.exists(f"data/raw/{pick}") else cv2.imread(glob.glob(a.images)[0])
+    img = cv2.imread(paths[idx[0]])
     newK, roi = cv2.getOptimalNewCameraMatrix(K, D, size, 1, size)
     dst = cv2.undistort(img, K, D, None, newK)
     both = np.hstack([cv2.resize(img, None, fx=.4, fy=.4), cv2.resize(dst, None, fx=.4, fy=.4)])
